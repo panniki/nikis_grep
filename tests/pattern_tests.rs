@@ -12,6 +12,40 @@ fn parse_digit() -> Result<(), PatternError> {
 }
 
 #[test]
+fn parses_anychar() -> Result<(), PatternError> {
+    let input = r"d.g";
+    let ptrn = Pattern::new(input)?;
+    assert_eq!(ptrn.body.len(), 3);
+    assert_eq!(
+        ptrn.body.first().unwrap(),
+        &Quantifier::Exact(Atom::Literal('d'))
+    );
+    assert_eq!(ptrn.body.get(1).unwrap(), &Quantifier::Exact(Atom::Any));
+    assert_eq!(
+        ptrn.body.get(2).unwrap(),
+        &Quantifier::Exact(Atom::Literal('g'))
+    );
+
+    let input = r"...";
+    let ptrn = Pattern::new(input)?;
+    assert_eq!(ptrn.body.len(), 3);
+    assert_eq!(ptrn.body.first().unwrap(), &Quantifier::Exact(Atom::Any));
+    assert_eq!(ptrn.body.get(1).unwrap(), &Quantifier::Exact(Atom::Any));
+    assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::Exact(Atom::Any));
+
+    let input = r"d.?.+";
+    let ptrn = Pattern::new(input)?;
+    assert_eq!(ptrn.body.len(), 3);
+    assert_eq!(
+        ptrn.body.first().unwrap(),
+        &Quantifier::Exact(Atom::Literal('d'))
+    );
+    assert_eq!(ptrn.body.get(1).unwrap(), &Quantifier::ZeroOrOne(Atom::Any));
+    assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::OneOrMore(Atom::Any));
+    Ok(())
+}
+
+#[test]
 fn parse_iteral() -> Result<(), PatternError> {
     let input = r"abc123\d";
     let ptrn = Pattern::new(input)?;

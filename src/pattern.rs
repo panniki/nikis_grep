@@ -16,6 +16,7 @@ pub enum Atom {
     W,             // \w
     Literal(char), // abcdeAbcdzzz231237
     Chars(Vec<Atom>, bool),
+    Any,
 }
 
 pub struct Pattern {
@@ -29,6 +30,10 @@ impl Pattern {
 
         while let Some(curr_char) = input_chars.next() {
             match curr_char {
+                '.' => {
+                    let atom = Atom::Any;
+                    body.push(Self::quantify(&mut input_chars, atom))
+                }
                 // class
                 '\\' => {
                     if let Some(next_char) = input_chars.next() {
@@ -139,9 +144,11 @@ impl Pattern {
 
                 found = match matcher {
                     Quantifier::Exact(atom) => match atom {
-                        Atom::Digit | Atom::W | Atom::Literal(_) | Atom::Chars(_, _) => {
-                            Self::match_atom(&inp_char, atom)
-                        }
+                        Atom::Digit
+                        | Atom::W
+                        | Atom::Literal(_)
+                        | Atom::Any
+                        | Atom::Chars(_, _) => Self::match_atom(&inp_char, atom),
                         Atom::FromStart => {
                             if i == 0 {
                                 maybe_matcher = expr_iter.next();
@@ -237,6 +244,7 @@ impl Pattern {
                     !mtch
                 }
             }
+            Atom::Any => unimplemented!("implement `.`"),
             _ => unimplemented!(),
         }
     }

@@ -18,13 +18,14 @@ impl Quantifier {
 
 #[derive(Debug, PartialEq, Eq)]
 enum Atom {
-    FromStart,              // ^
-    ToEnd,                  // $
-    Digit,                  // \d
-    W,                      // \w
-    Literal(char),          // abcdeAbcdzzz231237
-    Chars(Vec<Atom>, bool), // [foo322]
-    Any,                    // .
+    FromStart,                      // ^
+    ToEnd,                          // $
+    Digit,                          // \d
+    W,                              // \w
+    Literal(char),                  // abcdeAbcdzzz231237
+    Chars(Vec<Atom>, bool),         // [foo322]
+    Any,                            // .
+    AltGroup(Vec<Vec<Quantifier>>), // (cat|dog)
 }
 
 pub struct Pattern {
@@ -38,15 +39,75 @@ impl Pattern {
 
         while let Some(curr_char) = input_chars.next() {
             match curr_char {
+                '(' => {
+                    let mut group: Vec<Vec<Quantifier>> = vec![];
+
+                    let mut found_closing = false;
+
+                    while let Some(c) = input_chars.next() {
+                        match c {
+                            ')' => {
+                                found_closing = true;
+                                break;
+                            }
+                            '|' => continue,
+                            cc => {
+                                let prim = Self::parse_primitives(&mut input_chars, cc)?;
+                                group.push(prim);
+                            }
+                        }
+                    }
+
+                    if !found_closing {
+                        return Err(PatternError::InvalidGroup);
+                    }
+
+                    body.push(Self::quantify(&mut input_chars, Atom::AltGroup(group)))
+                }
+                // primetives
+                cc => {
+                    let mut prim = Self::parse_primitives(&mut input_chars, cc)?;
+                    body.append(&mut prim);
+                }
+            }
+        }
+
+        Ok(Self { body })
+    }
+
+    fn quantify(chars: &mut Peekable<Chars<'_>>, atom: Atom) -> Quantifier {
+        if let Some(&peek) = chars.peek() {
+            chars.next_if(|&c| matches!(c, '+' | '*' | '?'));
+
+            match peek {
+                '+' => Quantifier::OneOrMore(atom),
+                '*' => unimplemented!("Zero or more."),
+                '?' => Quantifier::ZeroOrOne(atom),
+                _ => Quantifier::Exact(atom),
+            }
+        } else {
+            Quantifier::Exact(atom)
+        }
+    }
+
+    fn parse_primitives(
+        input_chars: &mut Peekable<Chars<'_>>,
+        cc: char,
+    ) -> Result<Vec<Quantifier>, PatternError> {
+        let mut body = vec![];
+        let mut maybe_cc = Some(cc);
+
+        while let Some(curr_char) = maybe_cc {
+            match curr_char {
                 '.' => {
                     let atom = Atom::Any;
-                    body.push(Self::quantify(&mut input_chars, atom))
+                    body.push(Self::quantify(input_chars, atom))
                 }
                 // class
                 '\\' => {
                     if let Some(next_char) = input_chars.next() {
                         let atom = Self::parse_atom(&next_char);
-                        body.push(Self::quantify(&mut input_chars, atom))
+                        body.push(Self::quantify(input_chars, atom))
                     } else {
                         return Err(PatternError::NoClassFound);
                     }
@@ -83,34 +144,26 @@ impl Pattern {
                         return Err(PatternError::InvalidCharClass);
                     }
                     let atom = Atom::Chars(char_class, is_positive);
-                    body.push(Self::quantify(&mut input_chars, atom))
+                    body.push(Self::quantify(input_chars, atom))
                 }
                 '^' => body.push(Quantifier::Exact(Atom::FromStart)),
                 '$' => body.push(Quantifier::Exact(Atom::ToEnd)),
                 // literal
                 c => {
                     let atom = Atom::Literal(c);
-                    body.push(Self::quantify(&mut input_chars, atom))
+                    body.push(Self::quantify(input_chars, atom))
+                }
+            }
+
+            match input_chars.peek() {
+                Some('|') | Some(')') | Some('(') => break,
+                _ => {
+                    maybe_cc = input_chars.next();
                 }
             }
         }
 
-        Ok(Self { body })
-    }
-
-    fn quantify(chars: &mut Peekable<Chars<'_>>, atom: Atom) -> Quantifier {
-        if let Some(&peek) = chars.peek() {
-            chars.next_if(|&c| matches!(c, '+' | '*' | '?'));
-
-            match peek {
-                '+' => Quantifier::OneOrMore(atom),
-                '*' => unimplemented!("Zero or more."),
-                '?' => Quantifier::ZeroOrOne(atom),
-                _ => Quantifier::Exact(atom),
-            }
-        } else {
-            Quantifier::Exact(atom)
-        }
+        Ok(body)
     }
 
     fn parse_atom(c: &char) -> Atom {
@@ -170,6 +223,7 @@ impl Pattern {
                         // if we match it here it means that input is longer and does not
                         // match the regex.
                         Atom::ToEnd => false,
+                        Atom::AltGroup(_atom_list) => unimplemented!("(cat|dog)"),
                     },
                     Quantifier::OneOrMore(atom) => {
                         Self::count(&inp_char, atom, &mut chars_iter, &mut expr_iter) >= 1
@@ -266,7 +320,7 @@ impl Pattern {
 }
 
 #[cfg(test)]
-mod test {
+mod unit {
     use super::*;
 
     #[test]
@@ -624,6 +678,7 @@ mod test {
 
         Ok(())
     }
+
     #[test]
     fn parse_once_or_not() -> Result<(), PatternError> {
         let ptrn = Pattern::new(r"dogs?")?;
@@ -661,6 +716,60 @@ mod test {
             &Quantifier::ZeroOrOne(Atom::Digit)
         );
         assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::ZeroOrOne(Atom::W));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_alt_group() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"(c+at|dog?)([\dog]?|[\wod]+)?")?;
+        assert_eq!(ptrn.body.len(), 2);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::AltGroup(vec![
+                vec![
+                    Quantifier::OneOrMore(Atom::Literal('c')),
+                    Quantifier::Exact(Atom::Literal('a')),
+                    Quantifier::Exact(Atom::Literal('t'))
+                ],
+                vec![
+                    Quantifier::Exact(Atom::Literal('d')),
+                    Quantifier::Exact(Atom::Literal('o')),
+                    Quantifier::ZeroOrOne(Atom::Literal('g'))
+                ]
+            ]))
+        );
+        assert_eq!(
+            ptrn.body.get(1).unwrap(),
+            &Quantifier::ZeroOrOne(Atom::AltGroup(vec![
+                vec![Quantifier::ZeroOrOne(Atom::Chars(
+                    vec![Atom::Digit, Atom::Literal('o'), Atom::Literal('g')],
+                    true
+                ))],
+                vec![Quantifier::OneOrMore(Atom::Chars(
+                    vec![Atom::W, Atom::Literal('o'), Atom::Literal('d')],
+                    true
+                ))],
+            ]))
+        );
+        let ptrn = Pattern::new(r"(cat|dog|\d\w)")?;
+        assert_eq!(ptrn.body.len(), 1);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::AltGroup(vec![
+                vec![
+                    Quantifier::Exact(Atom::Literal('c')),
+                    Quantifier::Exact(Atom::Literal('a')),
+                    Quantifier::Exact(Atom::Literal('t'))
+                ],
+                vec![
+                    Quantifier::Exact(Atom::Literal('d')),
+                    Quantifier::Exact(Atom::Literal('o')),
+                    Quantifier::Exact(Atom::Literal('g'))
+                ],
+                vec![Quantifier::Exact(Atom::Digit), Quantifier::Exact(Atom::W),]
+            ]))
+        );
 
         Ok(())
     }

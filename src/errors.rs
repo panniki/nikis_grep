@@ -10,4 +10,7 @@ pub enum PatternError {
 
     #[error("Haven't found closing `]`")]
     InvalidCharClass,
+
+    #[error("Haven't found closing `)`")]
+    InvalidGroup,
 }

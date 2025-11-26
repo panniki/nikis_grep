@@ -171,3 +171,14 @@ fn match_any_char() -> Result<(), PatternError> {
 
     Ok(())
 }
+
+#[test]
+fn match_alt_group() -> Result<(), PatternError> {
+    let ptrn = Pattern::new("(cat|dog)")?;
+    assert!(ptrn.is_match("dog"));
+    assert!(ptrn.is_match("cat"));
+    assert!(!ptrn.is_match("dag"));
+    assert!(!ptrn.is_match("bag"));
+
+    Ok(())
+}

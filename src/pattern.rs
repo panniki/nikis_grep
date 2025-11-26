@@ -2,7 +2,7 @@ use crate::errors::PatternError;
 use std::{iter::Peekable, slice::Iter, str::Chars};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Quantifier {
+enum Quantifier {
     OneOrMore(Atom), // +
     ZeroOrOne(Atom), // ?
     Exact(Atom),
@@ -17,7 +17,7 @@ impl Quantifier {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Atom {
+enum Atom {
     FromStart,              // ^
     ToEnd,                  // $
     Digit,                  // \d
@@ -28,7 +28,7 @@ pub enum Atom {
 }
 
 pub struct Pattern {
-    pub body: Vec<Quantifier>,
+    body: Vec<Quantifier>,
 }
 
 impl Pattern {
@@ -209,7 +209,7 @@ impl Pattern {
         found && is_final
     }
 
-    pub fn count(
+    fn count(
         curr_char: &char,
         curr_atom: &Atom,
         chars: &mut Peekable<Chars<'_>>,
@@ -245,7 +245,7 @@ impl Pattern {
         counter
     }
 
-    pub fn match_atom(in_char: &char, atom: &Atom) -> bool {
+    fn match_atom(in_char: &char, atom: &Atom) -> bool {
         match atom {
             Atom::Digit => in_char.is_ascii_digit(),
             Atom::Literal(literal) => literal == in_char,
@@ -262,5 +262,424 @@ impl Pattern {
             Atom::Any => in_char != &'\n',
             _ => unimplemented!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_negative_char_atom() -> Result<(), PatternError> {
+        let ptrn = Pattern::new("[^abcd]")?;
+        let char_atom = Atom::Chars(
+            vec![
+                Atom::Literal('a'),
+                Atom::Literal('b'),
+                Atom::Literal('c'),
+                Atom::Literal('d'),
+            ],
+            false,
+        );
+        assert_eq!(ptrn.body.len(), 1);
+        assert_eq!(ptrn.body.first().unwrap(), &Quantifier::Exact(char_atom));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_basic_char_atom() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"[abcde\d\w]")?;
+        let char_atom = Atom::Chars(
+            vec![
+                Atom::Literal('a'),
+                Atom::Literal('b'),
+                Atom::Literal('c'),
+                Atom::Literal('d'),
+                Atom::Literal('e'),
+                Atom::Digit,
+                Atom::W,
+            ],
+            true,
+        );
+        assert_eq!(ptrn.body.len(), 1);
+        assert_eq!(ptrn.body.first().unwrap(), &Quantifier::Exact(char_atom));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_adv_char_atom() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"[abcde\d\w]\d\w322")?;
+        let char_atom = Atom::Chars(
+            vec![
+                Atom::Literal('a'),
+                Atom::Literal('b'),
+                Atom::Literal('c'),
+                Atom::Literal('d'),
+                Atom::Literal('e'),
+                Atom::Digit,
+                Atom::W,
+            ],
+            true,
+        );
+        assert_eq!(ptrn.body.len(), 6);
+        assert_eq!(ptrn.body.first().unwrap(), &Quantifier::Exact(char_atom));
+        assert_eq!(ptrn.body.get(1).unwrap(), &Quantifier::Exact(Atom::Digit));
+        assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::Exact(Atom::W));
+        assert_eq!(
+            ptrn.body.get(3).unwrap(),
+            &Quantifier::Exact(Atom::Literal('3'))
+        );
+        assert_eq!(
+            ptrn.body.get(4).unwrap(),
+            &Quantifier::Exact(Atom::Literal('2'))
+        );
+        assert_eq!(
+            ptrn.body.get(5).unwrap(),
+            &Quantifier::Exact(Atom::Literal('2'))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_word_char() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"\d\w\w\d")?;
+        assert_eq!(ptrn.body.len(), 4);
+        assert_eq!(ptrn.body.first().unwrap(), &Quantifier::Exact(Atom::Digit));
+        assert_eq!(ptrn.body.get(1).unwrap(), &Quantifier::Exact(Atom::W));
+        assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::Exact(Atom::W));
+        assert_eq!(ptrn.body.get(3).unwrap(), &Quantifier::Exact(Atom::Digit));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_digit() -> Result<(), PatternError> {
+        let input = r"\d";
+        let ptrn = Pattern::new(input)?;
+        assert_eq!(ptrn.body.len(), 1);
+        assert_eq!(ptrn.body.first().unwrap(), &Quantifier::Exact(Atom::Digit));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_anychar() -> Result<(), PatternError> {
+        let input = r"d.g";
+        let ptrn = Pattern::new(input)?;
+        assert_eq!(ptrn.body.len(), 3);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::Literal('d'))
+        );
+        assert_eq!(ptrn.body.get(1).unwrap(), &Quantifier::Exact(Atom::Any));
+        assert_eq!(
+            ptrn.body.get(2).unwrap(),
+            &Quantifier::Exact(Atom::Literal('g'))
+        );
+
+        let input = r"...";
+        let ptrn = Pattern::new(input)?;
+        assert_eq!(ptrn.body.len(), 3);
+        assert_eq!(ptrn.body.first().unwrap(), &Quantifier::Exact(Atom::Any));
+        assert_eq!(ptrn.body.get(1).unwrap(), &Quantifier::Exact(Atom::Any));
+        assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::Exact(Atom::Any));
+
+        let input = r"d.?.+";
+        let ptrn = Pattern::new(input)?;
+        assert_eq!(ptrn.body.len(), 3);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::Literal('d'))
+        );
+        assert_eq!(ptrn.body.get(1).unwrap(), &Quantifier::ZeroOrOne(Atom::Any));
+        assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::OneOrMore(Atom::Any));
+        Ok(())
+    }
+
+    #[test]
+    fn parse_iteral() -> Result<(), PatternError> {
+        let input = r"abc123\d";
+        let ptrn = Pattern::new(input)?;
+        assert_eq!(ptrn.body.len(), 7);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::Literal('a'))
+        );
+        assert_eq!(
+            ptrn.body.get(1).unwrap(),
+            &Quantifier::Exact(Atom::Literal('b'))
+        );
+        assert_eq!(
+            ptrn.body.get(2).unwrap(),
+            &Quantifier::Exact(Atom::Literal('c'))
+        );
+        assert_eq!(
+            ptrn.body.get(3).unwrap(),
+            &Quantifier::Exact(Atom::Literal('1'))
+        );
+        assert_eq!(
+            ptrn.body.get(4).unwrap(),
+            &Quantifier::Exact(Atom::Literal('2'))
+        );
+        assert_eq!(
+            ptrn.body.get(5).unwrap(),
+            &Quantifier::Exact(Atom::Literal('3'))
+        );
+        assert_eq!(ptrn.body.get(6).unwrap(), &Quantifier::Exact(Atom::Digit));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_from_start_anchor() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"^test")?;
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::FromStart)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_to_end_anchor() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"test$")?;
+        assert_eq!(ptrn.body.last().unwrap(), &Quantifier::Exact(Atom::ToEnd));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_from_start_to_end() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"^test$")?;
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::FromStart)
+        );
+        assert_eq!(
+            ptrn.body.get(1).unwrap(),
+            &Quantifier::Exact(Atom::Literal('t'))
+        );
+        assert_eq!(
+            ptrn.body.get(2).unwrap(),
+            &Quantifier::Exact(Atom::Literal('e'))
+        );
+        assert_eq!(
+            ptrn.body.get(3).unwrap(),
+            &Quantifier::Exact(Atom::Literal('s'))
+        );
+        assert_eq!(
+            ptrn.body.get(4).unwrap(),
+            &Quantifier::Exact(Atom::Literal('t'))
+        );
+        assert_eq!(ptrn.body.last().unwrap(), &Quantifier::Exact(Atom::ToEnd));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_one_or_more_qntf() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"\d+")?;
+        assert_eq!(ptrn.body.len(), 1);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::OneOrMore(Atom::Digit)
+        );
+
+        let ptrn = Pattern::new(r"[abc1\d\w]+de")?;
+        let char_atom = Atom::Chars(
+            vec![
+                Atom::Literal('a'),
+                Atom::Literal('b'),
+                Atom::Literal('c'),
+                Atom::Literal('1'),
+                Atom::Digit,
+                Atom::W,
+            ],
+            true,
+        );
+        assert_eq!(ptrn.body.len(), 3);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::OneOrMore(char_atom)
+        );
+        assert_eq!(
+            ptrn.body.get(1).unwrap(),
+            &Quantifier::Exact(Atom::Literal('d'))
+        );
+        assert_eq!(
+            ptrn.body.get(2).unwrap(),
+            &Quantifier::Exact(Atom::Literal('e'))
+        );
+
+        let ptrn = Pattern::new(r"ca+ts")?;
+        assert_eq!(ptrn.body.len(), 4);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::Literal('c'))
+        );
+        assert_eq!(
+            ptrn.body.get(1).unwrap(),
+            &Quantifier::OneOrMore(Atom::Literal('a'))
+        );
+        assert_eq!(
+            ptrn.body.get(2).unwrap(),
+            &Quantifier::Exact(Atom::Literal('t'))
+        );
+
+        assert_eq!(
+            ptrn.body.get(3).unwrap(),
+            &Quantifier::Exact(Atom::Literal('s'))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn count_occurance() -> Result<(), PatternError> {
+        let mut test = "ttest".chars().peekable();
+        let first_one = test.next().unwrap();
+        let res = Pattern::count(
+            &first_one,
+            &Atom::Literal('t'),
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 2);
+
+        let mut test = "Tttest".chars().peekable();
+        let first_one = test.next().unwrap();
+        let res = Pattern::count(
+            &first_one,
+            &Atom::Literal('t'),
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 0);
+
+        let mut test = "123456abasdfs".chars().peekable();
+        let first_one = test.next().unwrap();
+        let res = Pattern::count(
+            &first_one,
+            &Atom::Digit,
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 6);
+
+        let mut test = "123456abasdfs".chars().peekable();
+        let first_one = test.next().unwrap();
+        let res = Pattern::count(
+            &first_one,
+            &Atom::W,
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 13);
+
+        // Test from middle position
+        let mut test = "abc333def".chars().peekable();
+        test.next(); // skip 'a'
+        test.next(); // skip 'b'
+        test.next(); // skip 'c'
+        let mid_char = test.next().unwrap();
+        let res = Pattern::count(
+            &mid_char,
+            &Atom::Digit,
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 3);
+
+        // Test from end position
+        let mut test = "aaabbbccc".chars().peekable();
+        for _ in 0..6 {
+            test.next();
+        } // skip to 'c'
+        let end_char = test.next().unwrap();
+        let res = Pattern::count(
+            &end_char,
+            &Atom::Literal('c'),
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 3);
+
+        // Test non-match from middle
+        let mut test = "aaa123bbb".chars().peekable();
+        for _ in 0..3 {
+            test.next();
+        } // skip to '1'
+        let mid_char = test.next().unwrap();
+        let res = Pattern::count(
+            &mid_char,
+            &Atom::Literal('x'),
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 0);
+
+        Ok(())
+    }
+    #[test]
+    fn parse_once_or_not() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"dogs?")?;
+        assert_eq!(ptrn.body.len(), 4);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::Exact(Atom::Literal('d'))
+        );
+
+        assert_eq!(
+            ptrn.body.get(1).unwrap(),
+            &Quantifier::Exact(Atom::Literal('o'))
+        );
+        assert_eq!(
+            ptrn.body.get(2).unwrap(),
+            &Quantifier::Exact(Atom::Literal('g'))
+        );
+        assert_eq!(
+            ptrn.body.get(3).unwrap(),
+            &Quantifier::ZeroOrOne(Atom::Literal('s'))
+        );
+
+        let ptrn = Pattern::new(r"[abc]?\d?\w?")?;
+        let char_atom = Atom::Chars(
+            vec![Atom::Literal('a'), Atom::Literal('b'), Atom::Literal('c')],
+            true,
+        );
+        assert_eq!(ptrn.body.len(), 3);
+        assert_eq!(
+            ptrn.body.first().unwrap(),
+            &Quantifier::ZeroOrOne(char_atom)
+        );
+        assert_eq!(
+            ptrn.body.get(1).unwrap(),
+            &Quantifier::ZeroOrOne(Atom::Digit)
+        );
+        assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::ZeroOrOne(Atom::W));
+
+        Ok(())
+    }
+
+    #[test]
+    fn match_atom() -> Result<(), PatternError> {
+        let char_atom = Atom::Chars(
+            vec![
+                Atom::Literal('g'),
+                Atom::Literal('r'),
+                Atom::Literal('a'),
+                Atom::Literal('p'),
+                Atom::Literal('e'),
+            ],
+            true,
+        );
+        assert!(Pattern::match_atom(&'g', &char_atom));
+        assert!(!Pattern::match_atom(&'z', &char_atom));
+        assert!(Pattern::match_atom(&'p', &char_atom));
+        Ok(())
     }
 }

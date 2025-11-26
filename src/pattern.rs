@@ -110,17 +110,26 @@ impl Pattern {
     }
 
     pub fn is_match(&self, input: &str) -> bool {
-        if input.is_empty() || self.body.is_empty() {
+        if self.body.is_empty() {
             return false;
         }
+
         let mut found = false;
-        let mut chars_iter = input.chars().peekable();
+        let mut allow_unmatch = true;
         let mut i = 0;
+        let mut chars_iter = input.chars().peekable();
         let mut expr_iter = self.body.iter().peekable();
         let mut maybe_matcher = expr_iter.next();
-
-        let mut allow_unmatch = true;
         let mut maybe_inp_char = chars_iter.next();
+
+        // Handle empty input & ?
+        if maybe_inp_char.is_none() {
+            if let Some(Quantifier::ZeroOrOne(_)) = maybe_matcher {
+                return expr_iter.len() == 0;
+            } else {
+                return false;
+            }
+        }
 
         while let Some(inp_char) = maybe_inp_char {
             if let Some(matcher) = maybe_matcher {
@@ -143,16 +152,28 @@ impl Pattern {
                                 break;
                             }
                         }
-                        // if we match it here it means that that input_str longer and does not
+                        // if we match it here it means that input is longer and does not
                         // match the regex.
                         Atom::ToEnd => false,
                     },
                     Quantifier::OneOrMore(atom) => {
                         Self::count(&inp_char, atom, &mut chars_iter, &mut expr_iter) >= 1
                     }
-                    Quantifier::ZeroOrOne(atom) => unimplemented!(),
+                    Quantifier::ZeroOrOne(atom) => {
+                        let mtch =
+                            Self::count(&inp_char, atom, &mut chars_iter, &mut expr_iter) <= 1;
+
+                        // handles case when regex longer than input
+                        // ex: /colou?r/ -> "color"
+                        if mtch && chars_iter.peek().is_none() {
+                            maybe_matcher = expr_iter.next();
+                        }
+
+                        mtch
+                    }
                 };
                 if found {
+                    allow_unmatch = false;
                     maybe_matcher = expr_iter.next();
                 }
             } else {
@@ -161,11 +182,15 @@ impl Pattern {
             maybe_inp_char = chars_iter.next();
             i += 1;
         }
+
         let is_final = if let Some(Quantifier::Exact(Atom::ToEnd)) = maybe_matcher {
+            true
+        } else if let Some(Quantifier::ZeroOrOne(_)) = maybe_matcher {
             true
         } else {
             maybe_matcher.is_none()
         };
+
         found && is_final
     }
 
@@ -225,7 +250,6 @@ mod test {
     fn parse_digit() -> Result<(), PatternError> {
         let input = r"\d";
         let ptrn = Pattern::new(input)?;
-        // assert_eq!(ptrn.body.anchor, Anchor::Free);
         assert_eq!(ptrn.body.len(), 1);
         assert_eq!(ptrn.body.first().unwrap(), &Quantifier::Exact(Atom::Digit));
 
@@ -236,7 +260,6 @@ mod test {
     fn parse_iteral() -> Result<(), PatternError> {
         let input = r"abc123\d";
         let ptrn = Pattern::new(input)?;
-        // assert_eq!(ptrn.body.anchor, Anchor::Free);
         assert_eq!(ptrn.body.len(), 7);
         assert_eq!(
             ptrn.body.first().unwrap(),
@@ -599,30 +622,92 @@ mod test {
         Ok(())
     }
 
-    // #[test]
-    // fn count_occurance() -> Result<(), PatternError> {
-    //     let mut test = "ttest".chars().peekable();
-    //     let first_one = test.next().unwrap();
-    //     let res = Pattern::count(&first_one, &mut test, &Class::Literal('t'));
-    //     assert_eq!(res, 2);
-    //
-    //     let mut test = "Tttest".chars().peekable();
-    //     let first_one = test.next().unwrap();
-    //     let res = Pattern::count(&first_one, &mut test, &Class::Literal('t'));
-    //     assert_eq!(res, 0);
-    //
-    //     let mut test = "123456abasdfs".chars().peekable();
-    //     let first_one = test.next().unwrap();
-    //     let res = Pattern::count(&first_one, &mut test, &Class::Digit);
-    //     assert_eq!(res, 6);
-    //
-    //     let mut test = "123456abasdfs".chars().peekable();
-    //     let first_one = test.next().unwrap();
-    //     let res = Pattern::count(&first_one, &mut test, &Class::W);
-    //     assert_eq!(res, 13);
-    //
-    //     Ok(())
-    // }
+    #[test]
+    fn count_occurance() -> Result<(), PatternError> {
+        let mut test = "ttest".chars().peekable();
+        let first_one = test.next().unwrap();
+        let res = Pattern::count(
+            &first_one,
+            &Atom::Literal('t'),
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 2);
+
+        let mut test = "Tttest".chars().peekable();
+        let first_one = test.next().unwrap();
+        let res = Pattern::count(
+            &first_one,
+            &Atom::Literal('t'),
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 0);
+
+        let mut test = "123456abasdfs".chars().peekable();
+        let first_one = test.next().unwrap();
+        let res = Pattern::count(
+            &first_one,
+            &Atom::Digit,
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 6);
+
+        let mut test = "123456abasdfs".chars().peekable();
+        let first_one = test.next().unwrap();
+        let res = Pattern::count(
+            &first_one,
+            &Atom::W,
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 13);
+
+        // Test from middle position
+        let mut test = "abc333def".chars().peekable();
+        test.next(); // skip 'a'
+        test.next(); // skip 'b'
+        test.next(); // skip 'c'
+        let mid_char = test.next().unwrap();
+        let res = Pattern::count(
+            &mid_char,
+            &Atom::Digit,
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 3);
+
+        // Test from end position
+        let mut test = "aaabbbccc".chars().peekable();
+        for _ in 0..6 {
+            test.next();
+        } // skip to 'c'
+        let end_char = test.next().unwrap();
+        let res = Pattern::count(
+            &end_char,
+            &Atom::Literal('c'),
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 3);
+
+        // Test non-match from middle
+        let mut test = "aaa123bbb".chars().peekable();
+        for _ in 0..3 {
+            test.next();
+        } // skip to '1'
+        let mid_char = test.next().unwrap();
+        let res = Pattern::count(
+            &mid_char,
+            &Atom::Literal('x'),
+            &mut test,
+            &mut vec![].iter().peekable(),
+        );
+        assert_eq!(res, 0);
+
+        Ok(())
+    }
 
     #[test]
     fn match_char_atom() -> Result<(), PatternError> {
@@ -700,6 +785,30 @@ mod test {
             &Quantifier::ZeroOrOne(Atom::Digit)
         );
         assert_eq!(ptrn.body.get(2).unwrap(), &Quantifier::ZeroOrOne(Atom::W));
+
+        Ok(())
+    }
+
+    #[test]
+    fn match_once_or_none_qntf() -> Result<(), PatternError> {
+        let ptrn = Pattern::new(r"dogs?")?;
+        assert!(ptrn.is_match("dog"));
+        assert!(ptrn.is_match("dogs"));
+        assert!(!ptrn.is_match("dos"));
+        assert!(!ptrn.is_match("cat"));
+
+        let ptrn = Pattern::new(r"colou?r")?;
+        assert!(ptrn.is_match("color"));
+        assert!(ptrn.is_match("colour"));
+        assert!(!ptrn.is_match("colouur"));
+
+        let ptrn = Pattern::new(r"\d?")?;
+        assert!(ptrn.is_match("5"));
+        assert!(ptrn.is_match(""));
+        assert!(ptrn.is_match("foo"));
+
+        let ptrn = Pattern::new(r"ca?t")?;
+        assert!(!ptrn.is_match("cag"));
 
         Ok(())
     }

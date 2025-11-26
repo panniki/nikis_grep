@@ -3,20 +3,28 @@ use std::{iter::Peekable, slice::Iter, str::Chars};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Quantifier {
-    OneOrMore(Atom), //+
+    OneOrMore(Atom), // +
     ZeroOrOne(Atom), // ?
     Exact(Atom),
 }
 
+impl Quantifier {
+    fn get_atom(&self) -> &Atom {
+        match self {
+            Self::Exact(atom) | Self::ZeroOrOne(atom) | Self::OneOrMore(atom) => atom,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Atom {
-    FromStart,     // ^
-    ToEnd,         // $
-    Digit,         // \d
-    W,             // \w
-    Literal(char), // abcdeAbcdzzz231237
-    Chars(Vec<Atom>, bool),
-    Any,
+    FromStart,              // ^
+    ToEnd,                  // $
+    Digit,                  // \d
+    W,                      // \w
+    Literal(char),          // abcdeAbcdzzz231237
+    Chars(Vec<Atom>, bool), // [foo322]
+    Any,                    // .
 }
 
 pub struct Pattern {
@@ -213,20 +221,24 @@ impl Pattern {
         let mut counter = 1;
 
         while let Some(peek) = chars.peek() {
-            if Self::match_atom(peek, curr_atom) {
-                counter += 1;
-                chars.next();
-            } else {
-                break;
+            let maybe_next_atom = expr.peek().map(|q| q.get_atom());
+            match (Self::match_atom(peek, curr_atom), maybe_next_atom) {
+                (true, Some(next_atom)) => {
+                    if Self::match_atom(peek, next_atom) && next_atom != curr_atom {
+                        break;
+                    } else {
+                        if next_atom == curr_atom {
+                            expr.next();
+                        }
+
+                        counter += 1;
+                        chars.next();
+                    }
+                }
+                _ => break,
             }
         }
 
-        if let Some(Quantifier::Exact(next_atom)) = expr.peek() {
-            // handle "ca+at"
-            if next_atom == curr_atom {
-                expr.next();
-            }
-        }
         counter
     }
 
@@ -244,7 +256,7 @@ impl Pattern {
                     !mtch
                 }
             }
-            Atom::Any => unimplemented!("implement `.`"),
+            Atom::Any => in_char != &'\n',
             _ => unimplemented!(),
         }
     }

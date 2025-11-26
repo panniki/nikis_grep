@@ -235,10 +235,13 @@ impl Pattern {
                         chars.next();
                     }
                 }
+                (true, None) => {
+                    counter += 1;
+                    chars.next();
+                }
                 _ => break,
             }
         }
-
         counter
     }
 

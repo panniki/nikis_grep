@@ -411,92 +411,92 @@ fn parse_one_or_more_qntf() -> Result<(), PatternError> {
     Ok(())
 }
 
-// #[test]
-// fn count_occurance() -> Result<(), PatternError> {
-//     let mut test = "ttest".chars().peekable();
-//     let first_one = test.next().unwrap();
-//     let res = Pattern::count(
-//         &first_one,
-//         &Atom::Literal('t'),
-//         &mut test,
-//         &mut vec![].iter().peekable(),
-//     );
-//     assert_eq!(res, 2);
-//
-//     let mut test = "Tttest".chars().peekable();
-//     let first_one = test.next().unwrap();
-//     let res = Pattern::count(
-//         &first_one,
-//         &Atom::Literal('t'),
-//         &mut test,
-//         &mut vec![].iter().peekable(),
-//     );
-//     assert_eq!(res, 0);
-//
-//     let mut test = "123456abasdfs".chars().peekable();
-//     let first_one = test.next().unwrap();
-//     let res = Pattern::count(
-//         &first_one,
-//         &Atom::Digit,
-//         &mut test,
-//         &mut vec![].iter().peekable(),
-//     );
-//     assert_eq!(res, 6);
-//
-//     let mut test = "123456abasdfs".chars().peekable();
-//     let first_one = test.next().unwrap();
-//     let res = Pattern::count(
-//         &first_one,
-//         &Atom::W,
-//         &mut test,
-//         &mut vec![].iter().peekable(),
-//     );
-//     assert_eq!(res, 13);
-//
-//     // Test from middle position
-//     let mut test = "abc333def".chars().peekable();
-//     test.next(); // skip 'a'
-//     test.next(); // skip 'b'
-//     test.next(); // skip 'c'
-//     let mid_char = test.next().unwrap();
-//     let res = Pattern::count(
-//         &mid_char,
-//         &Atom::Digit,
-//         &mut test,
-//         &mut vec![].iter().peekable(),
-//     );
-//     assert_eq!(res, 3);
-//
-//     // Test from end position
-//     let mut test = "aaabbbccc".chars().peekable();
-//     for _ in 0..6 {
-//         test.next();
-//     } // skip to 'c'
-//     let end_char = test.next().unwrap();
-//     let res = Pattern::count(
-//         &end_char,
-//         &Atom::Literal('c'),
-//         &mut test,
-//         &mut vec![].iter().peekable(),
-//     );
-//     assert_eq!(res, 3);
-//
-//     // Test non-match from middle
-//     let mut test = "aaa123bbb".chars().peekable();
-//     for _ in 0..3 {
-//         test.next();
-//     } // skip to '1'
-//     let mid_char = test.next().unwrap();
-//     let res = Pattern::count(
-//         &mid_char,
-//         &Atom::Literal('x'),
-//         &mut test,
-//         &mut vec![].iter().peekable(),
-//     );
-//     assert_eq!(res, 0);
-//
-//     Ok(())
-// }
+#[test]
+fn count_occurance() -> Result<(), PatternError> {
+    let mut test = "ttest".chars().peekable();
+    let first_one = test.next().unwrap();
+    let res = Pattern::count(
+        &first_one,
+        &Atom::Literal('t'),
+        &mut test,
+        &mut vec![].iter().peekable(),
+    );
+    assert_eq!(res, 2);
+
+    let mut test = "Tttest".chars().peekable();
+    let first_one = test.next().unwrap();
+    let res = Pattern::count(
+        &first_one,
+        &Atom::Literal('t'),
+        &mut test,
+        &mut vec![].iter().peekable(),
+    );
+    assert_eq!(res, 0);
+
+    let mut test = "123456abasdfs".chars().peekable();
+    let first_one = test.next().unwrap();
+    let res = Pattern::count(
+        &first_one,
+        &Atom::Digit,
+        &mut test,
+        &mut vec![].iter().peekable(),
+    );
+    assert_eq!(res, 6);
+
+    let mut test = "123456abasdfs".chars().peekable();
+    let first_one = test.next().unwrap();
+    let res = Pattern::count(
+        &first_one,
+        &Atom::W,
+        &mut test,
+        &mut vec![].iter().peekable(),
+    );
+    assert_eq!(res, 13);
+
+    // Test from middle position
+    let mut test = "abc333def".chars().peekable();
+    test.next(); // skip 'a'
+    test.next(); // skip 'b'
+    test.next(); // skip 'c'
+    let mid_char = test.next().unwrap();
+    let res = Pattern::count(
+        &mid_char,
+        &Atom::Digit,
+        &mut test,
+        &mut vec![].iter().peekable(),
+    );
+    assert_eq!(res, 3);
+
+    // Test from end position
+    let mut test = "aaabbbccc".chars().peekable();
+    for _ in 0..6 {
+        test.next();
+    } // skip to 'c'
+    let end_char = test.next().unwrap();
+    let res = Pattern::count(
+        &end_char,
+        &Atom::Literal('c'),
+        &mut test,
+        &mut vec![].iter().peekable(),
+    );
+    assert_eq!(res, 3);
+
+    // Test non-match from middle
+    let mut test = "aaa123bbb".chars().peekable();
+    for _ in 0..3 {
+        test.next();
+    } // skip to '1'
+    let mid_char = test.next().unwrap();
+    let res = Pattern::count(
+        &mid_char,
+        &Atom::Literal('x'),
+        &mut test,
+        &mut vec![].iter().peekable(),
+    );
+    assert_eq!(res, 0);
+
+    Ok(())
+}
 
 #[test]
 fn match_char_atom() -> Result<(), PatternError> {

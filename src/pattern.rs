@@ -175,25 +175,27 @@ impl Pattern {
         }
     }
 
-    pub fn is_match(&self, input: &str) -> bool {
-        if self.body.is_empty() {
-            return false;
+    /// Returns the amount of consumed characters or None if no match was found.
+    pub fn match_from(pattern: &[Quantifier], input: &str) -> Option<usize> {
+        if pattern.is_empty() {
+            return None;
         }
 
+        let mut consumed = 0;
         let mut found = false;
         let mut allow_unmatch = true;
         let mut i = 0;
         let mut chars_iter = input.chars().peekable();
-        let mut expr_iter = self.body.iter().peekable();
-        let mut maybe_matcher = expr_iter.next();
+        let mut ptrn_iter = pattern.iter().peekable();
+        let mut maybe_matcher = ptrn_iter.next();
         let mut maybe_inp_char = chars_iter.next();
 
         // Handle empty input & ?
         if maybe_inp_char.is_none() {
             if let Some(Quantifier::ZeroOrOne(_)) = maybe_matcher {
-                return expr_iter.len() == 0;
+                return Some(consumed);
             } else {
-                return false;
+                return None;
             }
         }
 
@@ -209,10 +211,16 @@ impl Pattern {
                         | Atom::W
                         | Atom::Literal(_)
                         | Atom::Any
-                        | Atom::Chars(_, _) => Self::match_atom(&inp_char, atom),
+                        | Atom::Chars(_, _) => {
+                            let mtch = Self::match_atom(&inp_char, atom);
+                            if mtch {
+                                consumed += 1;
+                            }
+                            mtch
+                        }
                         Atom::FromStart => {
                             if i == 0 {
-                                maybe_matcher = expr_iter.next();
+                                maybe_matcher = ptrn_iter.next();
                                 allow_unmatch = false;
                                 found = true;
                                 continue;
@@ -226,16 +234,20 @@ impl Pattern {
                         Atom::AltGroup(_atom_list) => unimplemented!("(cat|dog)"),
                     },
                     Quantifier::OneOrMore(atom) => {
-                        Self::count(&inp_char, atom, &mut chars_iter, &mut expr_iter) >= 1
+                        let count = Self::count(&inp_char, atom, &mut chars_iter, &mut ptrn_iter);
+                        consumed += count;
+                        count >= 1
                     }
                     Quantifier::ZeroOrOne(atom) => {
-                        let mtch =
-                            Self::count(&inp_char, atom, &mut chars_iter, &mut expr_iter) <= 1;
+                        let count = Self::count(&inp_char, atom, &mut chars_iter, &mut ptrn_iter);
+                        consumed += count;
+                        let mtch = count <= 1;
 
                         // handles case when regex longer than input
                         // ex: /colou?r/ -> "color"
                         if mtch && chars_iter.peek().is_none() {
-                            maybe_matcher = expr_iter.next();
+                            consumed += 1;
+                            maybe_matcher = ptrn_iter.next();
                         }
 
                         mtch
@@ -243,7 +255,7 @@ impl Pattern {
                 };
                 if found {
                     allow_unmatch = false;
-                    maybe_matcher = expr_iter.next();
+                    maybe_matcher = ptrn_iter.next();
                 }
             } else {
                 break;
@@ -260,7 +272,15 @@ impl Pattern {
             maybe_matcher.is_none()
         };
 
-        found && is_final
+        if found && is_final {
+            Some(consumed)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_match(&self, input: &str) -> bool {
+        Self::match_from(&self.body, input).is_some()
     }
 
     fn count(
@@ -789,6 +809,148 @@ mod unit {
         assert!(Pattern::match_atom(&'g', &char_atom));
         assert!(!Pattern::match_atom(&'z', &char_atom));
         assert!(Pattern::match_atom(&'p', &char_atom));
+        Ok(())
+    }
+
+    #[test]
+    fn match_from_basic_literals() -> Result<(), PatternError> {
+        // Pattern "cat" on input "cat" → Some(3)
+        let ptrn = &[
+            Quantifier::Exact(Atom::Literal('c')),
+            Quantifier::Exact(Atom::Literal('a')),
+            Quantifier::Exact(Atom::Literal('t')),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "cat"), Some(3));
+        assert_eq!(Pattern::match_from(ptrn, "dog"), None);
+
+        // Pattern "do" on input "dog" → Some(2)
+        let ptrn = &[
+            Quantifier::Exact(Atom::Literal('d')),
+            Quantifier::Exact(Atom::Literal('o')),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "dog"), Some(2));
+
+        Ok(())
+    }
+
+    #[test]
+    fn match_from_one_or_more_quantifier() -> Result<(), PatternError> {
+        // Pattern "c+at" on input "ccat" → Some(4)
+        let ptrn = &[
+            Quantifier::OneOrMore(Atom::Literal('c')),
+            Quantifier::Exact(Atom::Literal('a')),
+            Quantifier::Exact(Atom::Literal('t')),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "ccat"), Some(4));
+        assert_eq!(Pattern::match_from(ptrn, "cccccat"), Some(7));
+
+        // Pattern "\d+" on input "12345abc" → Some(5)
+        let ptrn = &[Quantifier::OneOrMore(Atom::Digit)];
+        assert_eq!(Pattern::match_from(ptrn, "12345abc"), Some(5));
+
+        Ok(())
+    }
+
+    #[test]
+    fn match_from_zero_or_one_quantifier() -> Result<(), PatternError> {
+        // Pattern "colou?r" on input "color" → Some(5)
+        let ptrn = &[
+            Quantifier::Exact(Atom::Literal('c')),
+            Quantifier::Exact(Atom::Literal('o')),
+            Quantifier::Exact(Atom::Literal('l')),
+            Quantifier::Exact(Atom::Literal('o')),
+            Quantifier::ZeroOrOne(Atom::Literal('u')),
+            Quantifier::Exact(Atom::Literal('r')),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "color"), Some(5));
+        assert_eq!(Pattern::match_from(ptrn, "colour"), Some(6));
+
+        // Pattern "\d?" on input "foo" → Some(0)
+        let ptrn = &[Quantifier::ZeroOrOne(Atom::Digit)];
+        assert_eq!(Pattern::match_from(ptrn, "foo"), Some(0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn match_from_multiple_quantifiers() -> Result<(), PatternError> {
+        // Pattern "a+b+c" on input "aaabbbccc" → Some(9)
+        let ptrn = &[
+            Quantifier::OneOrMore(Atom::Literal('a')),
+            Quantifier::OneOrMore(Atom::Literal('b')),
+            Quantifier::OneOrMore(Atom::Literal('c')),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "aaabbbccc"), Some(9));
+
+        // Pattern "\d+\w+" on input "123abc" → Some(6)
+        let ptrn = &[
+            Quantifier::OneOrMore(Atom::Digit),
+            Quantifier::OneOrMore(Atom::W),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "123abc"), Some(6));
+
+        Ok(())
+    }
+
+    #[test]
+    fn match_from_greedy_quantifiers() -> Result<(), PatternError> {
+        // Pattern "a+a" on input "aaa" → Some(3)
+        let ptrn = &[
+            Quantifier::OneOrMore(Atom::Literal('a')),
+            Quantifier::Exact(Atom::Literal('a')),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "aaa"), Some(3));
+        assert_eq!(Pattern::match_from(ptrn, "aa"), Some(2));
+        assert_eq!(Pattern::match_from(ptrn, "a"), None);
+
+        // TODO: fix this one.
+        // Pattern ".*cat" on input "the cat" → Some(7)
+        // let ptrn = &[
+        //     Quantifier::ZeroOrOne(Atom::Any),
+        //     Quantifier::Exact(Atom::Literal('c')),
+        //     Quantifier::Exact(Atom::Literal('a')),
+        //     Quantifier::Exact(Atom::Literal('t')),
+        // ];
+        // assert_eq!(Pattern::match_from(ptrn, "the cat"), Some(7));
+
+        Ok(())
+    }
+
+    #[test]
+    fn match_from_anchors() -> Result<(), PatternError> {
+        // Pattern "^cat" tests
+        let ptrn = &[
+            Quantifier::Exact(Atom::FromStart),
+            Quantifier::Exact(Atom::Literal('c')),
+            Quantifier::Exact(Atom::Literal('a')),
+            Quantifier::Exact(Atom::Literal('t')),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "cat"), Some(3));
+        assert_eq!(Pattern::match_from(ptrn, "dog cat"), None);
+
+        // Pattern "cat$" tests
+        let ptrn = &[
+            Quantifier::Exact(Atom::Literal('c')),
+            Quantifier::Exact(Atom::Literal('a')),
+            Quantifier::Exact(Atom::Literal('t')),
+            Quantifier::Exact(Atom::ToEnd),
+        ];
+        assert_eq!(Pattern::match_from(ptrn, "cat"), Some(3));
+        assert_eq!(Pattern::match_from(ptrn, "dog cat"), Some(3));
+
+        Ok(())
+    }
+
+    #[test]
+    fn match_from_character_classes() -> Result<(), PatternError> {
+        // Pattern "[abc]+" on input "abccba" → Some(6)
+        let ptrn = &[Quantifier::OneOrMore(Atom::Chars(
+            vec![Atom::Literal('a'), Atom::Literal('b'), Atom::Literal('c')],
+            true,
+        ))];
+        assert_eq!(Pattern::match_from(ptrn, "abccba"), Some(6));
+        assert_eq!(Pattern::match_from(ptrn, "abcxyz"), Some(3));
+
         Ok(())
     }
 }

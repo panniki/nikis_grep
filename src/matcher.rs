@@ -5,6 +5,7 @@ pub fn match_from(pattern: &[Quantifier], input: &str) -> Option<usize> {
     if pattern.is_empty() {
         return None;
     }
+    // dbg!(&pattern, &input, '-');
 
     let mut consumed = 0;
     let mut found = false;
@@ -96,6 +97,7 @@ pub fn match_from(pattern: &[Quantifier], input: &str) -> Option<usize> {
                     mtch
                 }
             };
+            dbg!(&matcher, &inp_char, found, "->");
             if found {
                 allow_unmatch = false;
                 maybe_matcher = ptrn_iter.next();

@@ -15,7 +15,7 @@ fn main() {
 
     io::stdin().read_line(&mut input_line).unwrap();
 
-    let Ok(ptrn) = Pattern::new(&pattern) else {
+    let Ok(ptrn) = Pattern::try_from(pattern.as_str()) else {
         println!("Unhandled pattern: {pattern}");
         process::exit(1)
     };

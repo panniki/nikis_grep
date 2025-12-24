@@ -31,9 +31,10 @@ A regular expression (regex) engine and grep implementation in Rust. This projec
 The grep engine is organized into focused modules:
 
 - **`main.rs`** - Command-line interface and main execution pipeline
-- **`pattern.rs`** - Core regex parsing and matching engine
-- **`errors.rs`** - Comprehensive error types and handling
-- **`lib.rs`** - Public API and module organization
+- **`pattern.rs`** - Pattern types, `TryFrom<&str>` conversion, and public API
+- **`parser.rs`** - Regex parsing logic and syntax validation
+- **`matcher.rs`** - Pattern matching engine with recursive matching logic
+- **`lib.rs`** - Module organization and re-exports
 
 ## Usage
 

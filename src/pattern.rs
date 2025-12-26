@@ -2,7 +2,7 @@ use crate::matcher;
 use crate::parser;
 
 // TODO: add ZeroOrMore *
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Quantifier {
     OneOrMore(Atom), // +
     ZeroOrOne(Atom), // ?
@@ -17,14 +17,14 @@ impl Quantifier {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Atom {
     FromStart,                      // ^
     ToEnd,                          // $
     Digit,                          // \d
     W,                              // \w
     Literal(char),                  // abcdeAbcdzzz231237
-    Chars(Vec<Atom>, bool),         // [foo322]
+    Seq(Vec<Atom>, bool),           // [foo322]
     Any,                            // .
     AltGroup(Vec<Vec<Quantifier>>), // (cat|dog)
 }
@@ -45,7 +45,8 @@ impl TryFrom<&str> for Pattern {
 
 impl Pattern {
     pub fn is_match(&self, input: &str) -> bool {
-        matcher::match_from(&self.body, input).is_some()
+        let chars = input.chars().collect::<Vec<_>>();
+        matcher::match_from(&chars, &self.body, 0, true).is_some()
     }
 }
 

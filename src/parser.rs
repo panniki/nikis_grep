@@ -112,7 +112,7 @@ fn parse_primitives(
                 if !found_closing {
                     return Err(ParserError::InvalidCharClass);
                 }
-                let atom = Atom::Chars(char_class, is_positive);
+                let atom = Atom::Seq(char_class, is_positive);
                 body.push(quantify(input_chars, atom))
             }
             '^' => body.push(Quantifier::Exact(Atom::FromStart)),
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn parse_negative_char_atom() -> Result<(), ParserError> {
         let ptrn = parse("[^abcd]")?;
-        let char_atom = Atom::Chars(
+        let char_atom = Atom::Seq(
             vec![
                 Atom::Literal('a'),
                 Atom::Literal('b'),
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn parse_basic_char_atom() -> Result<(), ParserError> {
         let ptrn = parse(r"[abcde\d\w]")?;
-        let char_atom = Atom::Chars(
+        let char_atom = Atom::Seq(
             vec![
                 Atom::Literal('a'),
                 Atom::Literal('b'),
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn parse_adv_char_atom() -> Result<(), ParserError> {
         let ptrn = parse(r"[abcde\d\w]\d\w322")?;
-        let char_atom = Atom::Chars(
+        let char_atom = Atom::Seq(
             vec![
                 Atom::Literal('a'),
                 Atom::Literal('b'),
@@ -336,7 +336,7 @@ mod tests {
         assert_eq!(ptrn.first().unwrap(), &Quantifier::OneOrMore(Atom::Digit));
 
         let ptrn = parse(r"[abc1\d\w]+de")?;
-        let char_atom = Atom::Chars(
+        let char_atom = Atom::Seq(
             vec![
                 Atom::Literal('a'),
                 Atom::Literal('b'),
@@ -386,7 +386,7 @@ mod tests {
         );
 
         let ptrn = parse(r"[abc]?\d?\w?")?;
-        let char_atom = Atom::Chars(
+        let char_atom = Atom::Seq(
             vec![Atom::Literal('a'), Atom::Literal('b'), Atom::Literal('c')],
             true,
         );
@@ -420,11 +420,11 @@ mod tests {
         assert_eq!(
             ptrn.get(1).unwrap(),
             &Quantifier::ZeroOrOne(Atom::AltGroup(vec![
-                vec![Quantifier::ZeroOrOne(Atom::Chars(
+                vec![Quantifier::ZeroOrOne(Atom::Seq(
                     vec![Atom::Digit, Atom::Literal('o'), Atom::Literal('g')],
                     true
                 ))],
-                vec![Quantifier::OneOrMore(Atom::Chars(
+                vec![Quantifier::OneOrMore(Atom::Seq(
                     vec![Atom::W, Atom::Literal('o'), Atom::Literal('d')],
                     true
                 ))],

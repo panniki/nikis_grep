@@ -26,83 +26,62 @@ pub fn match_from(
                 if match_atom(&chars[0], atom).is_some() {
                     match_from(&chars[1..], &pattern[1..], pos + 1, false)
                         .map(|consumed| 1 + consumed)
-                } else if !allow_unmatched {
-                    None
                 } else {
-                    match_from(&chars[1..], pattern, pos + 1, true)
+                    allow_unmatched
+                        .then(|| match_from(&chars[1..], pattern, pos + 1, true))
+                        .flatten()
                 }
             }
-            Atom::FromStart => {
-                if pos == 0 {
-                    match_from(chars, &pattern[1..], pos + 1, false)
-                } else {
-                    None
-                }
-            }
-            Atom::ToEnd => {
-                if chars.is_empty() {
-                    Some(0)
-                } else {
-                    None
-                }
-            }
+            Atom::FromStart => (pos == 0)
+                .then(|| match_from(chars, &pattern[1..], pos + 1, false))
+                .flatten(),
+            Atom::ToEnd => chars.is_empty().then_some(0),
             Atom::AltGroup(alternatives) => {
                 if alternatives.is_empty() {
                     return None;
                 }
 
-                let rest = pattern[1..].to_vec();
-                let first_alt = &alternatives[0];
-                let mut combined = first_alt.clone();
-                combined.extend(rest);
+                alternatives.iter().find_map(|alt| {
+                    let mut combined = alt.clone();
+                    combined.extend(pattern[1..].to_vec());
 
-                if let Some(result) = match_from(chars, combined.as_slice(), pos, false) {
-                    return Some(result);
-                }
-
-                if let Some(next_alt) = alternatives.get(1) {
-                    let rest = pattern[1..].to_vec();
-                    let mut combined = next_alt.clone();
-                    combined.extend(rest);
                     match_from(chars, combined.as_slice(), pos, false)
-                } else {
-                    None
-                }
+                })
             }
         },
         Quantifier::OneOrMore(atom) => {
             let maybe_next = pattern.get(1).map(|q| q.get_atom());
             let consumed = count(chars, atom, maybe_next)?;
+
             if consumed >= 1 {
                 let next_pos = pos + consumed;
-                if let Some(next) = maybe_next {
-                    // "a+a" on input "aaa"
-                    if next == atom && consumed >= 2 {
-                        Some(consumed)
-                    } else {
+
+                // Logic: If (next is same atom AND consumed >= 2), stop and return consumed.
+                // Otherwise, try to continue matching the rest of the pattern.
+                maybe_next
+                    .filter(|&next| next == atom && consumed >= 2)
+                    .map(|_| consumed)
+                    .or_else(|| {
                         match_from(&chars[consumed..], &pattern[1..], next_pos, false)
                             .map(|c| c + consumed)
-                    }
-                } else {
-                    match_from(&chars[consumed..], &pattern[1..], next_pos, false)
-                        .map(|c| c + consumed)
-                }
-            } else if allow_unmatched {
-                match_from(&chars[1..], pattern, pos + 1, true)
+                    })
             } else {
-                None
+                allow_unmatched
+                    .then(|| match_from(&chars[1..], pattern, pos + 1, true))
+                    .flatten()
             }
         }
         Quantifier::ZeroOrOne(atom) => {
             let maybe_next = pattern.get(1).map(|q| q.get_atom());
             let consumed = count(chars, atom, maybe_next)?;
+
             if consumed <= 1 {
-                let next_pos = pos + consumed;
-                match_from(&chars[consumed..], &pattern[1..], next_pos, false).map(|c| c + consumed)
-            } else if allow_unmatched {
-                match_from(&chars[1..], pattern, pos + 1, true)
+                match_from(&chars[consumed..], &pattern[1..], pos + consumed, false)
+                    .map(|c| c + consumed)
             } else {
-                None
+                allow_unmatched
+                    .then(|| match_from(&chars[1..], pattern, pos + 1, true))
+                    .flatten()
             }
         }
     };
@@ -119,24 +98,12 @@ fn match_atom(in_char: &char, atom: &Atom) -> Option<usize> {
         Atom::Digit => in_char.is_ascii_digit(),
         Atom::Literal(literal) => literal == in_char,
         Atom::W => in_char.is_ascii_digit() || in_char.is_ascii_alphabetic() || in_char == &'_',
-        Atom::Seq(cc, pos) => {
-            let mtch = cc.iter().any(|c| match_atom(in_char, c).is_some());
-
-            if *pos {
-                mtch
-            } else {
-                !mtch
-            }
-        }
+        Atom::Seq(cc, pos) => cc.iter().any(|c| match_atom(in_char, c).is_some()) == *pos,
         Atom::Any => in_char != &'\n',
         _ => false,
     };
 
-    if found {
-        Some(1)
-    } else {
-        None
-    }
+    found.then_some(1)
 }
 
 fn count(chars: &[char], current: &Atom, maybe_next: Option<&Atom>) -> Option<usize> {
@@ -146,12 +113,9 @@ fn count(chars: &[char], current: &Atom, maybe_next: Option<&Atom>) -> Option<us
 
     // chars[0] matches current, we will consume it
     // Check if NEXT char (chars[1]) matches next pattern (lookahead)
-    if chars.len() > 1 {
-        if let Some(next) = maybe_next {
-            if next != current && match_atom(&chars[1], next).is_some() {
-                // Stop here, consume only chars[0], let next pattern have chars[1]
-                return Some(1);
-            }
+    if let (Some(next), Some(c1)) = (maybe_next, chars.get(1)) {
+        if next != current && match_atom(c1, next).is_some() {
+            return Some(1);
         }
     }
 

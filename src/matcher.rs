@@ -37,15 +37,18 @@ pub fn match_from(
                 .flatten(),
             Atom::ToEnd => chars.is_empty().then_some(0),
             Atom::AltGroup(alternatives) => {
-                if alternatives.is_empty() {
-                    return None;
-                }
-
                 alternatives.iter().find_map(|alt| {
-                    let mut combined = alt.clone();
-                    combined.extend(pattern[1..].to_vec());
-
-                    match_from(chars, combined.as_slice(), pos, false)
+                    // 1. Try to match the alternative branch by itself
+                    match_from(chars, alt, pos, false).and_then(|consumed_alt| {
+                        // 2. If it matched, try to match the rest of the original pattern
+                        match_from(
+                            &chars[consumed_alt..],
+                            &pattern[1..],
+                            pos + consumed_alt,
+                            false,
+                        )
+                        .map(|consumed_rest| consumed_alt + consumed_rest)
+                    })
                 })
             }
         },
